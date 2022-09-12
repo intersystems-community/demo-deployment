@@ -1,23 +1,26 @@
-InterSystems Demo Deployment action
+InterSystems Demo Deployment
 ===
-
 
 Usage
 ==
 
+In your repository create file `.github/workflows/deploy.yml` with content. Replace `<name-of-demo>` with the domain name, which will be used before `.demo.community.intersystems.com`. Ask for deployment key and set it to secrets as `SERVICE_ACCOUNT_KEY`
+
 ```yaml
+name: Cloud Run Deploy
+
 on:
   push:
     branches:
-      - master
-      - main
+    - master
+    - main
+  workflow_dispatch:
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy Demo
-        if: github.event.repository.fork == false && github.event.repository.is_template == false
-        uses: intersystems-community/demo-deployment@master
-        with:
-          name: demo
+    uses: intersystems-community/demo-deployment/.github/workflows/deployment.yml@master
+    with:
+      name: <name-of-demo>
+    secrets:
+      SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 ```
