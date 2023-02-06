@@ -50,23 +50,32 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.ref }}
 
-    - name: 'Cloud Auth'
-      uses: 'google-github-actions/auth@v0'
+    - name: Google Authentication
+      uses: google-github-actions/auth@v1.0.0
       with:
-        credentials_json: '${{ secrets.SERVICE_ACCOUNT_KEY }}'
+        credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
-    - name: Setup Cloud SDK
-      uses: google-github-actions/setup-gcloud@v0.2.0
+    - name: Get GKE credentials
+      uses: google-github-actions/get-gke-credentials@v1.0.1
+      with:
+        project_id:   {{ env.PROJECT_ID }}
+        cluster_name: {{ env.CLUSTER_NAME }}
+        location:     {{ env.REGION }}
+
+    - name: Setup gcloud cli
+      uses: google-github-actions/setup-gcloud@v1.0.0
+      with:
+        version: '412.0.0'
 
     - name: Authorize Docker push
       run: |
         gcloud auth list
-        gcloud auth configure-docker
+        gcloud --quiet auth configure-docker
 
     - name: Build and Push image
       run: |
@@ -85,7 +94,6 @@ jobs:
           --namespace ${NAMESPACE}     \
           --port 52773                 \
           --min-instances 1            \
-          --memory 512Mi               \
           --timeout 300                \
           --verbosity debug            \
           --image ${GCR_LOCATION}/${PROJECT_ID}/${IMAGE_NAME}:${GITHUB_SHA}
@@ -104,7 +112,6 @@ jobs:
 
     - name: Create domain name
       run: |
-        gcloud container clusters get-credentials ${CLUSTER_NAME} --region ${REGION} --project ${PROJECT_ID}
         kubectl version
         echo "[INFO] Checking if [${DOMAIN_NAME}] is in the existing Ingress annotation..."
         CURRENT_DOMAINS_LIST=$(kubectl -n gke-system get svc istio-ingress -o jsonpath="{.metadata.annotations['external-dns\.alpha\.kubernetes\.io/hostname']}")
@@ -119,6 +126,5 @@ jobs:
 
     - name: Enable TLS-access
       run: |
-        gcloud container clusters get-credentials ${CLUSTER_NAME} --region ${REGION} --project ${PROJECT_ID}
         kubectl version
         kubectl patch configmap config-domainmapping -n knative-serving -p '{"data":{"autoTLS":"Enabled"}}'
