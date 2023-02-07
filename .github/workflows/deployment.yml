@@ -63,9 +63,9 @@ jobs:
     - name: Get GKE credentials
       uses: google-github-actions/get-gke-credentials@v1.0.1
       with:
-        project_id:   {{ env.PROJECT_ID }}
-        cluster_name: {{ env.CLUSTER_NAME }}
-        location:     {{ env.REGION }}
+        project_id:   ${{ env.PROJECT_ID }}
+        cluster_name: ${{ env.CLUSTER_NAME }}
+        location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
       uses: google-github-actions/setup-gcloud@v1.0.0
