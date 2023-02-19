@@ -45,7 +45,7 @@ env:
 
 jobs:
   deploy-cloud-run:
-    if: github.event.repository.fork == false && github.event.repository.is_template == false
+    # if: github.event.repository.fork == false && github.event.repository.is_template == false
     name: Deploy to Cloud Run
     runs-on: ubuntu-20.04
     steps:
