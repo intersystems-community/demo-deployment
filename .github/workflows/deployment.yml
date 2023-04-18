@@ -34,8 +34,8 @@ on:
         default: 512Mi
       port:
         description: 'WebPort for the running instance'
-        type: number
-        default: 52773
+        type: string
+        default: "52773"
 
 env:
   # Change this section according to your needs
