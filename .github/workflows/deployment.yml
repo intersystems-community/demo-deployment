@@ -31,11 +31,9 @@ on:
       memory:
         description: 'Memory for the instance'
         type: string
-        default: 512Mi
       port:
         description: 'WebPort for the running instance'
         type: string
-        default: "52773"
 
 env:
   # Change this section according to your needs
@@ -50,6 +48,8 @@ env:
   GCR_LOCATION: eu.gcr.io
   REGION:       europe-west2
   NAMESPACE:    demo
+  SERVICE_PORT: ${{ inputs.port }}
+  SERVICE_MEMORY: ${{ inputs.memory }}
 
 jobs:
   deploy-cloud-run:
@@ -95,16 +95,16 @@ jobs:
         gcloud config set project ${PROJECT_ID}
 
         echo "[INFO] Deploy service..."
-        gcloud run deploy ${SERVICE}     \
-          --platform gke                 \
-          --cluster ${CLUSTER_NAME}      \
-          --cluster-location ${REGION}   \
-          --namespace ${NAMESPACE}       \
-          --port ${{ inputs.port }}      \
-          --min-instances 1              \
-          --memory ${{ inputs.memory }}  \
-          --timeout 300                  \
-          --verbosity debug              \
+        gcloud run deploy ${SERVICE}         \
+          --platform gke                     \
+          --cluster ${CLUSTER_NAME}          \
+          --cluster-location ${REGION}       \
+          --namespace ${NAMESPACE}           \
+          --port ${SERVICE_PORT:-52773}      \
+          --min-instances 1                  \
+          --memory ${SERVICE_MEMORY:-512Mi}  \
+          --timeout 300                      \
+          --verbosity debug                  \
           --image ${GCR_LOCATION}/${PROJECT_ID}/${IMAGE_NAME}:${GITHUB_SHA}
 
         echo "[INFO] Create domain mappings..."
