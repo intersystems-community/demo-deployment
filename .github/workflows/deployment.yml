@@ -7,6 +7,14 @@ on:
         description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
         required: true
         type: string
+      memory:
+        description: 'Memory for the instance'
+        type: string
+        default: 512Mi
+      port:
+        description: 'WebPort for the running instance'
+        type: number
+        default: 52773
     secrets:
       SERVICE_ACCOUNT_KEY:
         required: true
@@ -27,12 +35,6 @@ on:
       name:
         description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
         required: true
-        type: string
-      memory:
-        description: 'Memory for the instance'
-        type: string
-      port:
-        description: 'WebPort for the running instance'
         type: string
 
 env:
