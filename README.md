@@ -21,6 +21,11 @@ jobs:
     uses: intersystems-community/demo-deployment/.github/workflows/deployment.yml@master
     with:
       name: <name-of-demo>
+      ## Optional
+      # memory: 1Gi
+      # port: 8081
     secrets:
       SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
+      ## Optional
+      # CUSTOM_VARS_LIST: "var1=${{ secrets.CUSTOM_VAR1 }},var2=value2,..."
 ```
