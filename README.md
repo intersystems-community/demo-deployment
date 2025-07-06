@@ -24,6 +24,7 @@ jobs:
       ## Optional
       # memory: 1Gi
       # port: 8081
+      # persistence: true
     secrets:
       SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
       ## Optional
