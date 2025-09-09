@@ -10,11 +10,16 @@ on:
       memory:
         description: 'Memory for the instance'
         type: string
-        default: 512Mi
+        default: 1Gi
       port:
         description: 'WebPort for the running instance'
         type: number
         default: 52773
+      persistence:
+        description: 'Set to true to persist your data.'
+        required: false
+        type: boolean
+        default: false
     secrets:
       SERVICE_ACCOUNT_KEY:
         required: true
@@ -60,6 +65,7 @@ jobs:
     # if: github.event.repository.fork == false && github.event.repository.is_template == false
     name: Deploy to Cloud Run
     runs-on: ubuntu-22.04
+    if: ${{ ! inputs.persistence }}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -68,21 +74,21 @@ jobs:
         ref: ${{ inputs.ref }}
 
     - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.7
+      uses: google-github-actions/auth@v2.1.11
       with:
         credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
     - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.0
+      uses: google-github-actions/get-gke-credentials@v2.3.4
       with:
         project_id:   ${{ env.PROJECT_ID }}
         cluster_name: ${{ env.CLUSTER_NAME }}
         location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.2
+      uses: google-github-actions/setup-gcloud@v2.1.5
       with:
-        version: '504.0.0'
+        version: '512.0.0'
 
     - name: Authorize Docker push
       run: |
@@ -146,3 +152,94 @@ jobs:
       run: |
         kubectl version
         kubectl patch configmap config-domainmapping -n knative-serving -p '{"data":{"autoTLS":"Enabled"}}'
+
+  deploy-stateful-workload:
+    name: Deploy Stateful Workload
+    runs-on: ubuntu-22.04
+    if: ${{ inputs.persistence }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+
+    - name: Google Authentication
+      uses: google-github-actions/auth@v2.1.11
+      with:
+        credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
+
+    - name: Get GKE credentials
+      uses: google-github-actions/get-gke-credentials@v2.3.4
+      with:
+        project_id:   ${{ env.PROJECT_ID }}
+        cluster_name: ${{ env.CLUSTER_NAME }}
+        location:     ${{ env.REGION }}
+
+    - name: Setup gcloud cli
+      uses: google-github-actions/setup-gcloud@v2.1.5
+      with:
+        version: '512.0.0'
+
+    - name: Authorize Docker push
+      run: |
+        gcloud --quiet auth configure-docker ${REGION}-docker.pkg.dev
+
+    - name: Build and Push image
+      run: |
+        docker buildx build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA} --push .
+
+    - name: Prepare Helm Environment Variables
+      id: prepare_helm_vars
+      run: |
+        echo "[INFO] Escaping custom variables..."
+        export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
+
+        if [[ -n "$CUSTOM_VARS_LIST_ESCAPED" ]]; then
+          echo "[INFO] CUSTOM_VARS_LIST_ESCAPED contains data. Parsing key-values..."
+          IFS=',' read -r -a ENV_PAIRS <<< "$CUSTOM_VARS_LIST_ESCAPED"
+
+          HELM_ARGS_ARRAY=()
+          INDEX=2
+          for PAIR in "${ENV_PAIRS[@]}"; do
+            # Split each pair into KEY and VALUE at the first '='
+            KEY="${PAIR%%=*}"
+            VALUE="${PAIR#*=}"
+            echo "[INFO] Setting key ${KEY}..."
+
+            HELM_ARGS_ARRAY+=(--set "extraEnv[$INDEX].name=$KEY,extraEnv[$INDEX].value=$VALUE")
+            ((INDEX++))
+          done
+        fi
+
+        # The HELM_ARGS_ARRAY is now ready to be used.
+        # We can't pass arrays between steps, so we output the array
+        # as a single, space-separated string for the next step to use.
+        echo "helm_args=${HELM_ARGS_ARRAY[*]}" >> $GITHUB_OUTPUT
+
+    - name: Deploy Stateful Workload
+      run: |
+        echo "[INFO] Set google project..."
+        gcloud config set project ${PROJECT_ID}
+
+        echo "[INFO] Escaping custom variables..."
+        export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
+
+        echo "[INFO] Installing IRIS Helm charts repository..."
+        helm repo add intersystems-charts https://charts.demo.community.intersystems.com
+
+        echo "[INFO] Deploy Helm release..."
+        helm -n ${NAMESPACE} upgrade --install ${{ inputs.name }} intersystems-charts/iris-app \
+            --version 0.0.1 \
+            --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME} \
+            --set image.tag=${GITHUB_SHA} \
+            --set resources.limits.memory=${SERVICE_MEMORY:-1Gi} \
+            --set service.webPort=${SERVICE_PORT:-52773} \
+            --set ingress.name=${{ inputs.name }} \
+            --set ingress.domain=${DOMAIN_NAME} \
+            --set extraEnv[0].name=ISC_DATA_DIRECTORY,extraEnv[0].value=/isc/data \
+            --set extraEnv[1].name=GITHUB_REPO,extraEnv[1].value=${GITHUB_REPO} \
+            ${{ steps.prepare_helm_vars.outputs.helm_args }} \
+            --wait \
+            --atomic \
+            --timeout 10m
