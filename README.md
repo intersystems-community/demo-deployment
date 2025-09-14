@@ -25,6 +25,7 @@ jobs:
       # memory: 1Gi
       # port: 8081
       # persistence: true
+      # namespace: demo
     secrets:
       SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
       ## Optional
