@@ -22,6 +22,7 @@ jobs:
     with:
       name: <name-of-demo>
       ## Optional
+      # domain_base: demo.community.intersystems.com
       # memory: 1Gi
       # port: 8081
       # persistence: true
