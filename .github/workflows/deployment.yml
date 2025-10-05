@@ -7,6 +7,11 @@ on:
         description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
         required: true
         type: string
+      domain_base:
+        description: 'Base domain for deployment'
+        required: false
+        type: string
+        default: 'demo.community.intersystems.com'
       namespace:
         description: 'Namespace to deploy to'
         required: false
@@ -48,12 +53,17 @@ on:
         description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
         required: true
         type: string
+      domain_base:
+        description: 'Base domain for deployment'
+        required: false
+        type: string
+        default: 'demo.community.intersystems.com'
 
 env:
   # Change this section according to your needs
   IMAGE_NAME:   ${{ inputs.name }}
   SERVICE:      ${{ inputs.name }}
-  DOMAIN_NAME:  ${{ inputs.name }}.demo.community.intersystems.com
+  DOMAIN_NAME:  ${{ inputs.name }}.${{ inputs.domain_base }}
 
 # Leave this section untouched
   PROJECT_ID:     iris-community-demos
