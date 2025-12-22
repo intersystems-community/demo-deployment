@@ -1,17 +1,12 @@
-name: Cloud Run Deploy
+name: Dev Cloud Deploy
 
 on:
   workflow_call:
     inputs:
       name:
-        description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
+        description: 'Domain name of deployment, before `.sandbox.developer.intersystems.com`'
         required: true
         type: string
-      namespace:
-        description: 'Namespace to deploy to'
-        required: false
-        type: string
-        default: demo
       memory:
         description: 'Memory for the instance'
         type: string
@@ -20,11 +15,6 @@ on:
         description: 'WebPort for the running instance'
         type: number
         default: 52773
-      persistence:
-        description: 'Set to true to persist your data.'
-        required: false
-        type: boolean
-        default: false
     secrets:
       SERVICE_ACCOUNT_KEY:
         required: true
@@ -45,7 +35,7 @@ on:
           - master
           - main
       name:
-        description: 'Domain name of deployment, before `.demo.community.intersystems.com`'
+        description: 'Domain name of deployment, before `.sandbox.developer.intersystems.com`'
         required: true
         type: string
 
@@ -53,7 +43,7 @@ env:
   # Change this section according to your needs
   IMAGE_NAME:   ${{ inputs.name }}
   SERVICE:      ${{ inputs.name }}
-  DOMAIN_NAME:  ${{ inputs.name }}.demo.community.intersystems.com
+  DOMAIN_NAME:  ${{ inputs.name }}.sandbox.developer.intersystems.com
 
 # Leave this section untouched
   PROJECT_ID:     iris-community-demos
@@ -61,16 +51,16 @@ env:
   GITHUB_SHA:     ${{ github.sha }}
   GITHUB_REPO:    ${{ github.repository }}
   REGION:         europe-west2
-  NAMESPACE:      ${{ inputs.namespace }}
+  NAMESPACE:      dev-cloud-workload
   SERVICE_PORT:   ${{ inputs.port }}
   SERVICE_MEMORY: ${{ inputs.memory }}
+  HELM_REPO:      intersystems-charts
+  HELM_VERSION:   0.0.1
 
 jobs:
-  deploy-cloud-run:
-    # if: github.event.repository.fork == false && github.event.repository.is_template == false
-    name: Deploy to Cloud Run
-    runs-on: ubuntu-22.04
-    if: ${{ ! inputs.persistence }}
+  deploy_workload:
+    name: Deploy Workload
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -79,112 +69,21 @@ jobs:
         ref: ${{ inputs.ref }}
 
     - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
+      uses: google-github-actions/auth@v3
       with:
         credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
     - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
+      uses: google-github-actions/get-gke-credentials@v3.0.0
       with:
         project_id:   ${{ env.PROJECT_ID }}
         cluster_name: ${{ env.CLUSTER_NAME }}
         location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
+      uses: google-github-actions/setup-gcloud@v3.0.1
       with:
-        version: '512.0.0'
-
-    - name: Authorize Docker push
-      run: |
-        gcloud --quiet auth configure-docker ${REGION}-docker.pkg.dev
-
-    - name: Build and Push image
-      run: |
-        docker buildx build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA} --push .
-
-    # Setting verbosity to debug leads to printing custom variables in the pipeline logs.
-    # It might be possible to replace 'set-env-vars' to 'set-secrets' but it requires additional Service Account permissions.
-    - name: Deploy to Cloud Run
-      run: |
-        echo "[INFO] Set google project..."
-        gcloud config set project ${PROJECT_ID}
-
-        echo "[INFO] Escaping custom variables..."
-        export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
-
-        echo "[INFO] Deploy service..."
-        gcloud run deploy ${SERVICE}                \
-          --platform gke                            \
-          --cluster ${CLUSTER_NAME}                 \
-          --cluster-location ${REGION}              \
-          --namespace ${NAMESPACE}                  \
-          --port ${SERVICE_PORT:-52773}             \
-          --min-instances 1                         \
-          --memory ${SERVICE_MEMORY:-512Mi}         \
-          --timeout 300                             \
-          --verbosity info                          \
-          --set-env-vars GITHUB_REPO=${GITHUB_REPO}${CUSTOM_VARS_LIST_ESCAPED:+,${CUSTOM_VARS_LIST_ESCAPED}} \
-          --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA}
-
-        echo "[INFO] Create domain mappings..."
-        if [[ $(gcloud run domain-mappings list --platform gke --cluster ${CLUSTER_NAME} --cluster-location ${REGION} --namespace ${NAMESPACE} --filter "DOMAIN=${DOMAIN_NAME}" | grep -v DOMAIN | wc -l) == 0 ]]; then
-          gcloud run domain-mappings create \
-            --service ${SERVICE}            \
-            --platform gke                  \
-            --cluster ${CLUSTER_NAME}       \
-            --cluster-location ${REGION}    \
-            --namespace ${NAMESPACE}        \
-            --verbosity debug               \
-            --domain ${DOMAIN_NAME}
-        fi
-
-    - name: Create domain name
-      run: |
-        kubectl version
-        echo "[INFO] Checking if [${DOMAIN_NAME}] is in the existing Ingress annotation..."
-        CURRENT_DOMAINS_LIST=$(kubectl -n gke-system get svc istio-ingress -o jsonpath="{.metadata.annotations['external-dns\.alpha\.kubernetes\.io/hostname']}")
-        if [[ $(echo ${CURRENT_DOMAINS_LIST} | grep -w "${DOMAIN_NAME}" | wc -c) -eq 0 ]]; then \
-          echo "[INFO] Domain [${DOMAIN_NAME}] is ABSENT in the domains list. Adding...";       \
-          kubectl -n gke-system annotate --overwrite svc istio-ingress external-dns\.alpha\.kubernetes\.io/hostname=${CURRENT_DOMAINS_LIST},${DOMAIN_NAME}; \
-          echo -n "[INFO] Resulting domain names: "
-          kubectl -n gke-system get svc istio-ingress -o jsonpath="{.metadata.annotations['external-dns\.alpha\.kubernetes\.io/hostname']}"
-        else
-          echo "[INFO] Domain [${DOMAIN_NAME}] is in the domains list. Leave untouched...";     \
-        fi
-
-    - name: Enable TLS-access
-      run: |
-        kubectl version
-        kubectl patch configmap config-domainmapping -n knative-serving -p '{"data":{"autoTLS":"Enabled"}}'
-
-  deploy-stateful-workload:
-    name: Deploy Stateful Workload
-    runs-on: ubuntu-22.04
-    if: ${{ inputs.persistence }}
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ inputs.repository }}
-        ref: ${{ inputs.ref }}
-
-    - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
-      with:
-        credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
-
-    - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
-      with:
-        project_id:   ${{ env.PROJECT_ID }}
-        cluster_name: ${{ env.CLUSTER_NAME }}
-        location:     ${{ env.REGION }}
-
-    - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
-      with:
-        version: '512.0.0'
+        version: '548.0.0'
 
     - name: Authorize Docker push
       run: |
@@ -249,9 +148,9 @@ jobs:
         helm repo add intersystems-charts https://charts.demo.community.intersystems.com
 
         echo "[INFO] Deploy Helm release..."
-        helm upgrade --install ${{ inputs.name }} intersystems-charts/iris-app \
+        helm upgrade --install ${{ inputs.name }} ${HELM_REPO}/iris-app \
             --namespace ${NAMESPACE} \
-            --version 0.0.1 \
+            --version ${HELM_VERSION} \
             --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME} \
             --set image.tag=${GITHUB_SHA} \
             --set resources.limits.memory=${SERVICE_MEMORY:-1Gi} \
