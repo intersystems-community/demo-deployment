@@ -7,11 +7,6 @@ on:
         description: 'Domain name of deployment, before `.sandbox.developer.intersystems.com`'
         required: true
         type: string
-      namespace:
-        description: 'Namespace to deploy to'
-        required: false
-        type: string
-        default: demo
       memory:
         description: 'Memory for the instance'
         type: string
@@ -56,7 +51,7 @@ env:
   GITHUB_SHA:     ${{ github.sha }}
   GITHUB_REPO:    ${{ github.repository }}
   REGION:         europe-west2
-  NAMESPACE:      ${{ inputs.namespace }}
+  NAMESPACE:      dev-cloud-workload
   SERVICE_PORT:   ${{ inputs.port }}
   SERVICE_MEMORY: ${{ inputs.memory }}
   HELM_REPO:      intersystems-charts

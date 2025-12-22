@@ -18,14 +18,12 @@ on:
 
 jobs:
   deploy:
-    uses: intersystems-community/cloud-deployment/.github/workflows/deployment.yml@master
+    uses: intersystems-community/cloud-deployment/.github/workflows/deployment.yml@dev-cloud-deployment
     with:
       name: <name-of-demo>
       ## Optional
       # memory: 1Gi
       # port: 8081
-      # persistence: true
-      # namespace: demo
     secrets:
       SERVICE_ACCOUNT_KEY: ${{ secrets.SERVICE_ACCOUNT_KEY }}
       ## Optional
