@@ -1,4 +1,4 @@
-name: Cloud Run Deploy
+name: Demo Deploy
 
 on:
   workflow_call:
@@ -21,7 +21,7 @@ on:
         type: number
         default: 52773
       persistence:
-        description: 'Set to true to persist your data.'
+        description: 'Set to true to keep IRIS data on persistent volumes across restarts.'
         required: false
         type: boolean
         default: false
@@ -52,7 +52,6 @@ on:
 env:
   # Change this section according to your needs
   IMAGE_NAME:   ${{ inputs.name }}
-  SERVICE:      ${{ inputs.name }}
   DOMAIN_NAME:  ${{ inputs.name }}.demo.community.intersystems.com
 
 # Leave this section untouched
@@ -66,34 +65,32 @@ env:
   SERVICE_MEMORY: ${{ inputs.memory }}
 
 jobs:
-  deploy-cloud-run:
-    # if: github.event.repository.fork == false && github.event.repository.is_template == false
-    name: Deploy to Cloud Run
-    runs-on: ubuntu-22.04
-    if: ${{ ! inputs.persistence }}
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-26.04
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.ref }}
 
     - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
+      uses: google-github-actions/auth@v3.0.0
       with:
         credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
     - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
+      uses: google-github-actions/get-gke-credentials@v3.0.0
       with:
         project_id:   ${{ env.PROJECT_ID }}
         cluster_name: ${{ env.CLUSTER_NAME }}
         location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
+      uses: google-github-actions/setup-gcloud@v3.0.1
       with:
-        version: '512.0.0'
+        version: '588.0.0'
 
     - name: Authorize Docker push
       run: |
@@ -103,109 +100,51 @@ jobs:
       run: |
         docker buildx build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA} --push .
 
-    # Setting verbosity to debug leads to printing custom variables in the pipeline logs.
-    # It might be possible to replace 'set-env-vars' to 'set-secrets' but it requires additional Service Account permissions.
-    - name: Deploy to Cloud Run
-      run: |
-        echo "[INFO] Set google project..."
-        gcloud config set project ${PROJECT_ID}
-
-        echo "[INFO] Escaping custom variables..."
-        export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
-
-        echo "[INFO] Deploy service..."
-        gcloud run deploy ${SERVICE}                \
-          --platform gke                            \
-          --cluster ${CLUSTER_NAME}                 \
-          --cluster-location ${REGION}              \
-          --namespace ${NAMESPACE}                  \
-          --port ${SERVICE_PORT:-52773}             \
-          --min-instances 1                         \
-          --memory ${SERVICE_MEMORY:-512Mi}         \
-          --timeout 300                             \
-          --verbosity info                          \
-          --set-env-vars GITHUB_REPO=${GITHUB_REPO}${CUSTOM_VARS_LIST_ESCAPED:+,${CUSTOM_VARS_LIST_ESCAPED}} \
-          --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA}
-
-        echo "[INFO] Create domain mappings..."
-        if [[ $(gcloud run domain-mappings list --platform gke --cluster ${CLUSTER_NAME} --cluster-location ${REGION} --namespace ${NAMESPACE} --filter "DOMAIN=${DOMAIN_NAME}" | grep -v DOMAIN | wc -l) == 0 ]]; then
-          gcloud run domain-mappings create \
-            --service ${SERVICE}            \
-            --platform gke                  \
-            --cluster ${CLUSTER_NAME}       \
-            --cluster-location ${REGION}    \
-            --namespace ${NAMESPACE}        \
-            --verbosity debug               \
-            --domain ${DOMAIN_NAME}
-        fi
-
-    - name: Create domain name
-      run: |
-        kubectl version
-        echo "[INFO] Checking if [${DOMAIN_NAME}] is in the existing Ingress annotation..."
-        CURRENT_DOMAINS_LIST=$(kubectl -n gke-system get svc istio-ingress -o jsonpath="{.metadata.annotations['external-dns\.alpha\.kubernetes\.io/hostname']}")
-        if [[ $(echo ${CURRENT_DOMAINS_LIST} | grep -w "${DOMAIN_NAME}" | wc -c) -eq 0 ]]; then \
-          echo "[INFO] Domain [${DOMAIN_NAME}] is ABSENT in the domains list. Adding...";       \
-          kubectl -n gke-system annotate --overwrite svc istio-ingress external-dns\.alpha\.kubernetes\.io/hostname=${CURRENT_DOMAINS_LIST},${DOMAIN_NAME}; \
-          echo -n "[INFO] Resulting domain names: "
-          kubectl -n gke-system get svc istio-ingress -o jsonpath="{.metadata.annotations['external-dns\.alpha\.kubernetes\.io/hostname']}"
-        else
-          echo "[INFO] Domain [${DOMAIN_NAME}] is in the domains list. Leave untouched...";     \
-        fi
-
-    - name: Enable TLS-access
-      run: |
-        kubectl version
-        kubectl patch configmap config-domainmapping -n knative-serving -p '{"data":{"autoTLS":"Enabled"}}'
-
-  deploy-stateful-workload:
-    name: Deploy Stateful Workload
-    runs-on: ubuntu-22.04
-    if: ${{ inputs.persistence }}
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ inputs.repository }}
-        ref: ${{ inputs.ref }}
-
-    - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
-      with:
-        credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
-
-    - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
-      with:
-        project_id:   ${{ env.PROJECT_ID }}
-        cluster_name: ${{ env.CLUSTER_NAME }}
-        location:     ${{ env.REGION }}
-
-    - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
-      with:
-        version: '512.0.0'
-
-    - name: Authorize Docker push
-      run: |
-        gcloud --quiet auth configure-docker ${REGION}-docker.pkg.dev
-
-    - name: Build and Push image
-      run: |
-        docker buildx build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME}:${GITHUB_SHA} --push .
-
-    - name: Prepare Helm Environment Variables
+    - name: Prepare Helm values
       id: prepare_helm_vars
       run: |
+        if [[ "${{ inputs.persistence }}" == "true" ]]; then
+          # Pin the original volume layout: ISC_DATA_DIRECTORY (/isc/data) must sit on a PVC, and
+          # volumeClaimTemplates are immutable, so existing releases cannot move to the chart's /data.
+          cat > deploy-values.yaml <<'EOF'
+        persistence:
+          enabled: true
+          volumes:
+          - {name: isc, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /isc}
+          - {name: wij, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /wij}
+          - {name: journal, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /journal}
+        initContainers:
+        - name: volume-init
+          image: busybox:1.38.0
+          command: [sh, -c, "chown -R 51773:51773 /isc /wij /journal && chmod g+w /isc /wij /journal"]
+        EOF
+          INDEX=2
+        else
+          # No volumes: data lives in the container and is lost on restart. The chart's default
+          # volume-init and CPF merge (wijdir=/wij/, journals in /journal/) both assume the volume
+          # paths, so they are dropped and IRIS keeps its default WIJ and journal locations.
+          cat > deploy-values.yaml <<'EOF'
+        persistence:
+          enabled: false
+        initContainers: []
+        cpf_config:
+          enabled: false
+        EOF
+          INDEX=1
+        fi
+
         echo "[INFO] Escaping custom variables..."
         export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
 
-        HELM_ARGS_STRING=""
+        # extraEnv[0] is GITHUB_REPO (set in the deploy step); [1] is ISC_DATA_DIRECTORY with persistence.
+        HELM_ARGS_STRING="--set-string 'extraEnv[0].name=GITHUB_REPO' --set-string 'extraEnv[0].value=${GITHUB_REPO}'"
+        if [[ "${{ inputs.persistence }}" == "true" ]]; then
+          HELM_ARGS_STRING="$HELM_ARGS_STRING --set-string 'extraEnv[1].name=ISC_DATA_DIRECTORY' --set-string 'extraEnv[1].value=/isc/data'"
+        fi
         if [[ -n "$CUSTOM_VARS_LIST_ESCAPED" ]]; then
           echo "[INFO] CUSTOM_VARS_LIST_ESCAPED contains data. Parsing key-values..."
           IFS=',' read -r -a ENV_PAIRS <<< "$CUSTOM_VARS_LIST_ESCAPED"
 
-          INDEX=2
           for PAIR in "${ENV_PAIRS[@]}"; do
             # Skip empty pairs
             if [[ -z "$PAIR" ]]; then
@@ -214,55 +153,45 @@ jobs:
 
             # Check if the pair contains '='
             if [[ "$PAIR" != *"="* ]]; then
-              echo "[WARNING] Skipping malformed pair (no '='): '$PAIR'"
+              echo "[WARNING] Skipping malformed pair (no '=')"
               continue
             fi
 
             # Split each pair into KEY and VALUE at the first '='
             KEY="${PAIR%%=*}"
             VALUE="${PAIR#*=}"
-            echo "[INFO] Processing pair: '$PAIR' -> KEY='$KEY', VALUE='$VALUE'"
+            echo "[INFO] Processing variable: KEY='$KEY'"
 
             # Only add if KEY is not empty (VALUE can be empty string)
             if [[ -n "$KEY" ]]; then
               HELM_ARGS_STRING="$HELM_ARGS_STRING --set-string 'extraEnv[$INDEX].name=$KEY' --set-string 'extraEnv[$INDEX].value=$VALUE'"
               ((INDEX++))
             else
-              echo "[WARNING] Skipping empty key: KEY='$KEY', VALUE='$VALUE'"
+              echo "[WARNING] Skipping empty key"
             fi
           done
         fi
 
-        # Output the helm args string
         echo "helm_args=$HELM_ARGS_STRING" >> $GITHUB_OUTPUT
-        echo "[DEBUG] Generated helm_args: $HELM_ARGS_STRING"
 
-    - name: Deploy Stateful Workload
+    - name: Deploy
       run: |
-        echo "[INFO] Set google project..."
-        gcloud config set project ${PROJECT_ID}
-
-        echo "[INFO] Escaping custom variables..."
-        export CUSTOM_VARS_LIST_ESCAPED=$(echo "${{ secrets.CUSTOM_VARS_LIST }}" | sed -E 's/"/\\"/g')
-
         echo "[INFO] Installing IRIS Helm charts repository..."
         helm repo add intersystems-charts https://charts.demo.community.intersystems.com
 
         echo "[INFO] Deploy Helm release..."
         helm upgrade --install ${{ inputs.name }} intersystems-charts/iris-app \
             --namespace ${NAMESPACE} \
-            --version 0.0.1 \
+            --version 0.0.8 \
+            -f deploy-values.yaml \
             --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME} \
             --set image.tag=${GITHUB_SHA} \
             --set resources.limits.memory=${SERVICE_MEMORY:-1Gi} \
             --set service.webPort=${SERVICE_PORT:-52773} \
             --set ingress.name=${{ inputs.name }} \
             --set ingress.domain=${DOMAIN_NAME} \
-            --set-string 'extraEnv[0].name=ISC_DATA_DIRECTORY' \
-            --set-string 'extraEnv[0].value=/isc/data' \
-            --set-string 'extraEnv[1].name=GITHUB_REPO' \
-            --set-string 'extraEnv[1].value=${GITHUB_REPO}' \
+            --set externalSecret.enabled=false \
             ${{ steps.prepare_helm_vars.outputs.helm_args }} \
-            --wait \
-            --atomic \
+            --wait=legacy \
+            --rollback-on-failure \
             --timeout 10m
