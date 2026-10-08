@@ -121,11 +121,14 @@ jobs:
           INDEX=2
         else
           # No volumes: data lives in the container and is lost on restart. The chart's default
-          # volume-init would chown volume paths that do not exist, so it is dropped too.
+          # volume-init and CPF merge (wijdir=/wij/, journals in /journal/) both assume the volume
+          # paths, so they are dropped and IRIS keeps its default WIJ and journal locations.
           cat > deploy-values.yaml <<'EOF'
         persistence:
           enabled: false
         initContainers: []
+        cpf_config:
+          enabled: false
         EOF
           INDEX=1
         fi
