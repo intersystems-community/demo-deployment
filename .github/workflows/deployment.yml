@@ -69,31 +69,31 @@ jobs:
   deploy-cloud-run:
     # if: github.event.repository.fork == false && github.event.repository.is_template == false
     name: Deploy to Cloud Run
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     if: ${{ ! inputs.persistence }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.ref }}
 
     - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
+      uses: google-github-actions/auth@v3.0.0
       with:
         credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
     - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
+      uses: google-github-actions/get-gke-credentials@v3.0.0
       with:
         project_id:   ${{ env.PROJECT_ID }}
         cluster_name: ${{ env.CLUSTER_NAME }}
         location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
+      uses: google-github-actions/setup-gcloud@v3.0.1
       with:
-        version: '512.0.0'
+        version: '588.0.0'
 
     - name: Authorize Docker push
       run: |
@@ -160,31 +160,31 @@ jobs:
 
   deploy-stateful-workload:
     name: Deploy Stateful Workload
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     if: ${{ inputs.persistence }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ inputs.ref }}
 
     - name: Google Authentication
-      uses: google-github-actions/auth@v2.1.11
+      uses: google-github-actions/auth@v3.0.0
       with:
         credentials_json: ${{ secrets.SERVICE_ACCOUNT_KEY }}
 
     - name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2.3.4
+      uses: google-github-actions/get-gke-credentials@v3.0.0
       with:
         project_id:   ${{ env.PROJECT_ID }}
         cluster_name: ${{ env.CLUSTER_NAME }}
         location:     ${{ env.REGION }}
 
     - name: Setup gcloud cli
-      uses: google-github-actions/setup-gcloud@v2.1.5
+      uses: google-github-actions/setup-gcloud@v3.0.1
       with:
-        version: '512.0.0'
+        version: '588.0.0'
 
     - name: Authorize Docker push
       run: |
@@ -248,21 +248,38 @@ jobs:
         echo "[INFO] Installing IRIS Helm charts repository..."
         helm repo add intersystems-charts https://charts.demo.community.intersystems.com
 
+        # Pin the original volume layout: ISC_DATA_DIRECTORY (/isc/data) must sit on a PVC, and
+        # volumeClaimTemplates are immutable, so existing releases cannot move to the chart's /data.
+        cat > persistence-values.yaml <<'EOF'
+        persistence:
+          enabled: true
+          volumes:
+          - {name: isc, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /isc}
+          - {name: wij, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /wij}
+          - {name: journal, storageClassName: standard, accessModes: [ReadWriteOnce], size: 10Gi, mountPath: /journal}
+        initContainers:
+        - name: volume-init
+          image: busybox:1.38.0
+          command: [sh, -c, "chown -R 51773:51773 /isc /wij /journal && chmod g+w /isc /wij /journal"]
+        EOF
+
         echo "[INFO] Deploy Helm release..."
         helm upgrade --install ${{ inputs.name }} intersystems-charts/iris-app \
             --namespace ${NAMESPACE} \
-            --version 0.0.1 \
+            --version 0.0.8 \
+            -f persistence-values.yaml \
             --set image.repository=${REGION}-docker.pkg.dev/${PROJECT_ID}/community/${IMAGE_NAME} \
             --set image.tag=${GITHUB_SHA} \
             --set resources.limits.memory=${SERVICE_MEMORY:-1Gi} \
             --set service.webPort=${SERVICE_PORT:-52773} \
             --set ingress.name=${{ inputs.name }} \
             --set ingress.domain=${DOMAIN_NAME} \
+            --set externalSecret.enabled=false \
             --set-string 'extraEnv[0].name=ISC_DATA_DIRECTORY' \
             --set-string 'extraEnv[0].value=/isc/data' \
             --set-string 'extraEnv[1].name=GITHUB_REPO' \
             --set-string 'extraEnv[1].value=${GITHUB_REPO}' \
             ${{ steps.prepare_helm_vars.outputs.helm_args }} \
             --wait \
-            --atomic \
+            --rollback-on-failure \
             --timeout 10m
