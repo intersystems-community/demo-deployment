@@ -280,6 +280,6 @@ jobs:
             --set-string 'extraEnv[1].name=GITHUB_REPO' \
             --set-string 'extraEnv[1].value=${GITHUB_REPO}' \
             ${{ steps.prepare_helm_vars.outputs.helm_args }} \
-            --wait \
+            --wait=legacy \
             --rollback-on-failure \
             --timeout 10m
