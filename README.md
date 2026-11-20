@@ -1,6 +1,9 @@
 InterSystems Demo Deployment
 ===
 
+> [!WARNING]
+> **Archived — no longer maintained.** The `demo` namespace on the demo cluster this workflow deploys to was removed in November 2026, and the deployment key has been revoked, so the workflow below no longer works. Remove the `deploy` job that calls `intersystems-community/demo-deployment/.github/workflows/deployment.yml` from your repository's workflows.
+
 - [Usage](#usage)
 - [How it deploys](#how-it-deploys)
 
